@@ -54,13 +54,20 @@ jobs:
           distribution: 'temurin'
           cache: 'gradle'
 
-      - name: Patch SDK version for Android 10
-        # 动态修改 minSdk，确保代码仓库保持干净
+      - name: Patch for Android 10 Compatibility
         run: |
-          if [ -f "app/build.gradle.kts" ]; then
-            sed -i 's/minSdk = 30/minSdk = 29/g' app/build.gradle.kts
-            echo "Patched app/build.gradle.kts"
-          fi
+          # 1. 之前已有的 SDK 版本修改
+          sed -i 's/minSdk = 30/minSdk = 29/g' app/build.gradle.kts
+
+          # 2. 核心修复：屏蔽 Android 11 特有的权限检查方法调用
+          # 我们直接让 grantedStorage 始终返回 false (或者根据需要改为 true)
+          # 这样它会走旧版的权限请求流程，而不是直接崩溃
+          sed -i 's/Environment.isExternalStorageManager()/false/g' app/src/main/java/de/felixnuesse/disky/utils/PermissionManager.kt
+
+          # 3. 开启旧版存储支持（双重保险）
+          sed -i '/<application/a \        android:requestLegacyExternalStorage="true"' app/src/main/AndroidManifest.xml
+
+          echo "Successfully patched PermissionManager and Manifest for Android 10"
 
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
