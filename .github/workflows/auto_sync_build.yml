@@ -5,7 +5,7 @@ on:
     - cron: '0 0 * * *'    # 每天凌晨自动同步
   push:
     branches:
-      - main               # 任何代码推送到 main 时触发
+      - master             # 修正：监听 master 分支的推送
   workflow_dispatch:        # 支持手动点击按钮触发
     inputs:
       sync_test_mode:
@@ -17,35 +17,36 @@ jobs:
   sync_upstream:
     name: Sync Upstream
     runs-on: ubuntu-latest
-    # 仅在定时任务或手动触发同步时运行
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     steps:
       - name: Checkout target repo
         uses: actions/checkout@v3
         with:
-          ref: main
+          ref: master      # 修正：拉取 master 分支
           persist-credentials: false
 
       - name: Sync upstream changes
         id: sync
         uses: aormsby/Fork-Sync-With-Upstream-action@v3.4.1
         with:
-          target_sync_branch: main
+          target_sync_branch: master    # 修正：你的目标分支是 master
           target_repo_token: ${{ secrets.GITHUB_TOKEN }}
           upstream_sync_repo: newhinton/disky
-          upstream_sync_branch: main
+          upstream_sync_branch: master  # 修正：上游的分支是 master
           test_mode: ${{ github.event.inputs.sync_test_mode || false }}
 
   build_android:
     name: Build Android APK
     needs: [sync_upstream]
-    # 逻辑：如果不是同步任务（即 push/dispatch），或者同步任务成功了，则执行构建
-    if: always() && (github.event_name == 'push' || github.event_name == 'workflow_dispatch' || needs.sync_upstream.result == 'success')
+    # 逻辑优化：如果是 push 或 手动触发，直接运行；如果是定时同步，则需同步成功才运行
+    if: always() && (github.event_name == 'push' || github.event_name == 'workflow_dispatch' || (github.event_name == 'schedule' && needs.sync_upstream.result == 'success'))
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
+        with:
+          ref: master      # 修正：确保构建时拉取的是 master
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -56,21 +57,20 @@ jobs:
 
       - name: Patch for Android 10 Compatibility
         run: |
-          # 1. 修改 SDK 版本
+          # 修改 SDK 版本
           sed -i 's/minSdk = 30/minSdk = 29/g' app/build.gradle.kts
 
-          # 2. 屏蔽 Android 11 环境检查方法调用
+          # 屏蔽 Android 11 环境检查方法调用
+          # 确保路径匹配：Disky 源码在 app/src/main/java/de/felixnuesse/disky/utils/PermissionManager.kt
           sed -i 's/Environment.isExternalStorageManager()/false/g' app/src/main/java/de/felixnuesse/disky/utils/PermissionManager.kt
 
-          # 3. 核心修复：防止启动不存在的 Android 11 特有设置页面
-          # 将跳转到 "所有文件访问" 的 Intent 修改为跳转到常规的 "应用详情" 页面
-          # 这样你可以在详情页里手动授予存储权限，而不会崩溃
+          # 修复 ActivityNotFoundException：将 Intent 重定向至应用详情页
           sed -i 's/Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION/Settings.ACTION_APPLICATION_DETAILS_SETTINGS/g' app/src/main/java/de/felixnuesse/disky/utils/PermissionManager.kt
           
-          # 4. 开启旧版存储支持
+          # 开启旧版存储支持
           sed -i '/<application/a \        android:requestLegacyExternalStorage="true"' app/src/main/AndroidManifest.xml
 
-          echo "Fixed ActivityNotFoundException by re-routing Intent to Application Details."
+          echo "Applied all Android 10 patches on master branch."
 
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
@@ -81,5 +81,5 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Disky-Android10-v${{ github.run_number }}
+          name: Disky-Android10-Master-v${{ github.run_number }}
           path: app/build/outputs/apk/debug/*.apk
