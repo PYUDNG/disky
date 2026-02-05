@@ -114,10 +114,17 @@ jobs:
         with:
           files: app/build/outputs/apk/release/*.apk
           tag_name: v${{ github.run_number }}-android10
-          name: Disky Android 10 Build #${{ github.run_number }}
+          name: Disky Android 10 Build ${{ github.run_number }}
           body: |
-            Automated build from upstream sync.
-            - Target SDK: 29 (Android 10)
-            - Signed with custom keystore.
+            ### Unofficial Android 10 Port
+            This version is patched for Android 10 (API 29) compatibility.
+            
+            **⚠️ Important Notice:**
+            Due to changes in storage permissions, the app cannot request them automatically. **You MUST manually grant Storage permission** in:
+            *Settings -> Apps -> Disky -> Permissions -> Storage -> Allow*
+            
+            *Automated build synced with upstream. Patched with Gemini (AI) assistance.*
+          draft: false
+          prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
