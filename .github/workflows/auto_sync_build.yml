@@ -57,20 +57,22 @@ jobs:
 
       - name: Patch for Android 10 Compatibility
         run: |
-          # 修改 SDK 版本
+          # 1. 修改 SDK 版本
           sed -i 's/minSdk = 30/minSdk = 29/g' app/build.gradle.kts
 
-          # 屏蔽 Android 11 环境检查方法调用
-          # 确保路径匹配：Disky 源码在 app/src/main/java/de/felixnuesse/disky/utils/PermissionManager.kt
+          # 2. 注入旧版存储权限声明到 Manifest
+          # 这样系统设置里才会出现存储权限开关
+          sed -i '/<uses-permission/i \    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />' app/src/main/AndroidManifest.xml
+          sed -i '/<uses-permission/i \    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />' app/src/main/AndroidManifest.xml
+          
+          # 3. 屏蔽 Android 11 环境检查并强制跳转应用详情页
           sed -i 's/Environment.isExternalStorageManager()/false/g' app/src/main/java/de/felixnuesse/disky/utils/PermissionManager.kt
-
-          # 修复 ActivityNotFoundException：将 Intent 重定向至应用详情页
           sed -i 's/Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION/Settings.ACTION_APPLICATION_DETAILS_SETTINGS/g' app/src/main/java/de/felixnuesse/disky/utils/PermissionManager.kt
           
-          # 开启旧版存储支持
+          # 4. 强制开启旧版存储支持
           sed -i '/<application/a \        android:requestLegacyExternalStorage="true"' app/src/main/AndroidManifest.xml
 
-          echo "Applied all Android 10 patches on master branch."
+          echo "Injected legacy storage permissions and patched code."
 
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
