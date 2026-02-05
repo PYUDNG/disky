@@ -1,0 +1,69 @@
+name: Upstream Sync and Build (Android 10 Patch)
+
+on:
+  schedule:
+    - cron: '0 0 * * *'    # 每天凌晨自动同步
+  push:
+    branches:
+      - main               # 任何代码推送到 main 时触发（包括同步成功）
+  workflow_dispatch:        # 支持手动点击按钮触发
+
+jobs:
+  sync_upstream:
+    name: Sync Upstream
+    runs-on: ubuntu-latest
+    # 仅在定时任务或手动触发同步时运行
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    steps:
+      - name: Checkout target repo
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Sync Upstream
+        id: sync
+        uses: a2021lv/upstream_sync@v2.0
+        with:
+          upstream_repository: newhinton/disky
+          upstream_branch: main
+          target_branch: main
+          force: true # 强制同步以保持源码与上游 100% 一致，避免版本冲突
+
+  build_android:
+    name: Build Android APK
+    needs: [sync_upstream]
+    # 逻辑：只要同步成功，或者用户手动推了代码，或者手动触发，就执行构建
+    if: always() && (github.event_name == 'push' || github.event_name == 'workflow_dispatch' || needs.sync_upstream.result == 'success')
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: 'gradle'
+
+      - name: Patch SDK version for Android 10
+        # 动态将 minSdk 从 30 修改为 29，确保编译出的 APK 支持鸿蒙 2
+        run: |
+          sed -i 's/minSdk = 30/minSdk = 29/g' app/build.gradle.kts
+          echo "Successfully patched minSdk to 29 in memory"
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Build with Gradle
+        # 使用 assembleDebug，产出的 APK 无需正式签名即可在安卓 10 上安装
+        run: ./gradlew assembleDebug
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Disky-Android10-v${{ github.run_number }}
+          # 产出的路径基于你提供的 build.gradle.kts 结构
+          path: app/build/outputs/apk/debug/*.apk
