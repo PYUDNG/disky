@@ -107,3 +107,17 @@ jobs:
         with:
           name: Disky-Signed-v${{ github.run_number }}
           path: app/build/outputs/apk/release/*.apk
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        if: github.event_name != 'pull_request'
+        with:
+          files: app/build/outputs/apk/release/*.apk
+          tag_name: v${{ github.run_number }}-android10
+          name: Disky Android 10 Build #${{ github.run_number }}
+          body: |
+            Automated build from upstream sync.
+            - Target SDK: 29 (Android 10)
+            - Signed with custom keystore.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
