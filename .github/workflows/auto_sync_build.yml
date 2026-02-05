@@ -5,8 +5,13 @@ on:
     - cron: '0 0 * * *'    # 每天凌晨自动同步
   push:
     branches:
-      - main               # 任何代码推送到 main 时触发（包括同步成功）
+      - main               # 任何代码推送到 main 时触发
   workflow_dispatch:        # 支持手动点击按钮触发
+    inputs:
+      sync_test_mode:
+        description: 'Fork Sync Test Mode'
+        type: boolean
+        default: false
 
 jobs:
   sync_upstream:
@@ -16,24 +21,25 @@ jobs:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     steps:
       - name: Checkout target repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v3
         with:
           ref: main
-          fetch-depth: 0
+          persist-credentials: false
 
-      - name: Sync Upstream
+      - name: Sync upstream changes
         id: sync
-        uses: a2021lv/upstream_sync@v2.0
+        uses: aormsby/Fork-Sync-With-Upstream-action@v3.4.1
         with:
-          upstream_repository: newhinton/disky
-          upstream_branch: main
-          target_branch: main
-          force: true # 强制同步以保持源码与上游 100% 一致，避免版本冲突
+          target_sync_branch: main
+          target_repo_token: ${{ secrets.GITHUB_TOKEN }}
+          upstream_sync_repo: newhinton/disky
+          upstream_sync_branch: main
+          test_mode: ${{ github.event.inputs.sync_test_mode || false }}
 
   build_android:
     name: Build Android APK
     needs: [sync_upstream]
-    # 逻辑：只要同步成功，或者用户手动推了代码，或者手动触发，就执行构建
+    # 逻辑：如果不是同步任务（即 push/dispatch），或者同步任务成功了，则执行构建
     if: always() && (github.event_name == 'push' || github.event_name == 'workflow_dispatch' || needs.sync_upstream.result == 'success')
     runs-on: ubuntu-latest
 
@@ -49,21 +55,21 @@ jobs:
           cache: 'gradle'
 
       - name: Patch SDK version for Android 10
-        # 动态将 minSdk 从 30 修改为 29，确保编译出的 APK 支持鸿蒙 2
+        # 动态修改 minSdk，确保代码仓库保持干净
         run: |
-          sed -i 's/minSdk = 30/minSdk = 29/g' app/build.gradle.kts
-          echo "Successfully patched minSdk to 29 in memory"
+          if [ -f "app/build.gradle.kts" ]; then
+            sed -i 's/minSdk = 30/minSdk = 29/g' app/build.gradle.kts
+            echo "Patched app/build.gradle.kts"
+          fi
 
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
       - name: Build with Gradle
-        # 使用 assembleDebug，产出的 APK 无需正式签名即可在安卓 10 上安装
         run: ./gradlew assembleDebug
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: Disky-Android10-v${{ github.run_number }}
-          # 产出的路径基于你提供的 build.gradle.kts 结构
           path: app/build/outputs/apk/debug/*.apk
