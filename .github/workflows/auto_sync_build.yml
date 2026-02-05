@@ -56,18 +56,21 @@ jobs:
 
       - name: Patch for Android 10 Compatibility
         run: |
-          # 1. 之前已有的 SDK 版本修改
+          # 1. 修改 SDK 版本
           sed -i 's/minSdk = 30/minSdk = 29/g' app/build.gradle.kts
 
-          # 2. 核心修复：屏蔽 Android 11 特有的权限检查方法调用
-          # 我们直接让 grantedStorage 始终返回 false (或者根据需要改为 true)
-          # 这样它会走旧版的权限请求流程，而不是直接崩溃
+          # 2. 屏蔽 Android 11 环境检查方法调用
           sed -i 's/Environment.isExternalStorageManager()/false/g' app/src/main/java/de/felixnuesse/disky/utils/PermissionManager.kt
 
-          # 3. 开启旧版存储支持（双重保险）
+          # 3. 核心修复：防止启动不存在的 Android 11 特有设置页面
+          # 将跳转到 "所有文件访问" 的 Intent 修改为跳转到常规的 "应用详情" 页面
+          # 这样你可以在详情页里手动授予存储权限，而不会崩溃
+          sed -i 's/Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION/Settings.ACTION_APPLICATION_DETAILS_SETTINGS/g' app/src/main/java/de/felixnuesse/disky/utils/PermissionManager.kt
+          
+          # 4. 开启旧版存储支持
           sed -i '/<application/a \        android:requestLegacyExternalStorage="true"' app/src/main/AndroidManifest.xml
 
-          echo "Successfully patched PermissionManager and Manifest for Android 10"
+          echo "Fixed ActivityNotFoundException by re-routing Intent to Application Details."
 
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
