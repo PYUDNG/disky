@@ -1,12 +1,12 @@
-name: Upstream Sync and Build (Android 10 Patch)
+name: Upstream Sync and Build (Signed Android 10)
 
 on:
   schedule:
-    - cron: '0 0 * * *'    # 每天凌晨自动同步
+    - cron: '0 0 * * *'
   push:
     branches:
-      - master             # 修正：监听 master 分支的推送
-  workflow_dispatch:        # 支持手动点击按钮触发
+      - master
+  workflow_dispatch:
     inputs:
       sync_test_mode:
         description: 'Fork Sync Test Mode'
@@ -22,23 +22,22 @@ jobs:
       - name: Checkout target repo
         uses: actions/checkout@v3
         with:
-          ref: master      # 修正：拉取 master 分支
+          ref: master
           persist-credentials: false
 
       - name: Sync upstream changes
         id: sync
         uses: aormsby/Fork-Sync-With-Upstream-action@v3.4.1
         with:
-          target_sync_branch: master    # 修正：你的目标分支是 master
+          target_sync_branch: master
           target_repo_token: ${{ secrets.GITHUB_TOKEN }}
           upstream_sync_repo: newhinton/disky
-          upstream_sync_branch: master  # 修正：上游的分支是 master
+          upstream_sync_branch: master
           test_mode: ${{ github.event.inputs.sync_test_mode || false }}
 
   build_android:
-    name: Build Android APK
+    name: Build Signed APK
     needs: [sync_upstream]
-    # 逻辑优化：如果是 push 或 手动触发，直接运行；如果是定时同步，则需同步成功才运行
     if: always() && (github.event_name == 'push' || github.event_name == 'workflow_dispatch' || (github.event_name == 'schedule' && needs.sync_upstream.result == 'success'))
     runs-on: ubuntu-latest
 
@@ -46,7 +45,7 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
         with:
-          ref: master      # 修正：确保构建时拉取的是 master
+          ref: master
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -56,32 +55,32 @@ jobs:
           cache: 'gradle'
 
       - name: Patch for Android 10 Compatibility
+        # 这里使用了更健壮的权限检查补丁，不需要 'this' 上下文，兼容性更高
         run: |
-          # 1. 修改 SDK 版本
           sed -i 's/minSdk = 30/minSdk = 29/g' app/build.gradle.kts
-
-          # 2. 注入旧版存储权限声明到 Manifest
-          # 这样系统设置里才会出现存储权限开关
           sed -i '/<uses-permission/i \    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />' app/src/main/AndroidManifest.xml
           sed -i '/<uses-permission/i \    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />' app/src/main/AndroidManifest.xml
           
-          # 3. 屏蔽 Android 11 环境检查并强制跳转应用详情页
-          sed -i 's/Environment.isExternalStorageManager()/false/g' app/src/main/java/de/felixnuesse/disky/utils/PermissionManager.kt
-          sed -i 's/Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION/Settings.ACTION_APPLICATION_DETAILS_SETTINGS/g' app/src/main/java/de/felixnuesse/disky/utils/PermissionManager.kt
+          # 核心逻辑：使用全局 Application 检查权限，避免 Context 引用报错
+          sed -i 's/Environment.isExternalStorageManager()/androidx.core.content.ContextCompat.checkSelfPermission(de.felixnuesse.disky.DiskyApp.instance, android.Manifest.permission.READ_EXTERNAL_STORAGE) == android.content.pm.PackageManager.PERMISSION_GRANTED/g' app/src/main/java/de/felixnuesse/disky/utils/PermissionManager.kt
           
-          # 4. 强制开启旧版存储支持
+          sed -i 's/Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION/Settings.ACTION_APPLICATION_DETAILS_SETTINGS/g' app/src/main/java/de/felixnuesse/disky/utils/PermissionManager.kt
           sed -i '/<application/a \        android:requestLegacyExternalStorage="true"' app/src/main/AndroidManifest.xml
 
-          echo "Injected legacy storage permissions and patched code."
-
-      - name: Grant execute permission for gradlew
-        run: chmod +x gradlew
+      - name: Decode Keystore
+        run: echo "${{ secrets.KS_FILE }}" | base64 -d > app/my.keystore
 
       - name: Build with Gradle
-        run: ./gradlew assembleDebug
+        # 注入签名参数进行编译
+        run: |
+          ./gradlew assembleRelease \
+            -Pandroid.injected.signing.store.file=my.keystore \
+            -Pandroid.injected.signing.store.password=${{ secrets.KS_PASS }} \
+            -Pandroid.injected.signing.key.alias=${{ secrets.KS_ALIAS }} \
+            -Pandroid.injected.signing.key.password=${{ secrets.KS_KEY_PASS }}
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Disky-Android10-Master-v${{ github.run_number }}
-          path: app/build/outputs/apk/debug/*.apk
+          name: Disky-Signed-v${{ github.run_number }}
+          path: app/build/outputs/apk/release/*.apk
