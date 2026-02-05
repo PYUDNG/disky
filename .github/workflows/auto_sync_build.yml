@@ -59,26 +59,29 @@ jobs:
           # 1. 修改 SDK 版本
           sed -i 's/minSdk = 30/minSdk = 29/g' app/build.gradle.kts
 
-          # 2. 清理并注入存储权限声明，确保系统设置显示开关
+          # 2. 注入存储权限声明
           sed -i '/android.permission.READ_EXTERNAL_STORAGE/d' app/src/main/AndroidManifest.xml
           sed -i '/android.permission.WRITE_EXTERNAL_STORAGE/d' app/src/main/AndroidManifest.xml
           sed -i '/<uses-permission/i \    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />' app/src/main/AndroidManifest.xml
           sed -i '/<uses-permission/i \    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />' app/src/main/AndroidManifest.xml
           
-          # 3. 核心修复：权限检查逻辑重定向
-          # 针对 Android 10，我们不再调用 Environment.isExternalStorageManager()。
-          # 直接将该调用替换为 true。
-          # 逻辑理由：既然你已经手动在系统设置里给了权限，让这个检查返回 true 即可顺利进入主界面。
-          # 这样可以彻底避开寻找 Context 导致的编译错误。
+          # 3. 权限检查与跳转补丁
           sed -i 's/Environment.isExternalStorageManager()/true/g' app/src/main/java/de/felixnuesse/disky/utils/PermissionManager.kt
-          
-          # 4. 修复跳转意图：Android 10 无法跳转到 MANAGE_ALL_FILES，改为跳转到应用详情页
           sed -i 's/Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION/Settings.ACTION_APPLICATION_DETAILS_SETTINGS/g' app/src/main/java/de/felixnuesse/disky/utils/PermissionManager.kt
-          
-          # 5. 开启旧版存储支持（Scoped Storage 豁免）
           sed -i '/<application/a \        android:requestLegacyExternalStorage="true"' app/src/main/AndroidManifest.xml
 
-          echo "Applied heavy-duty Android 10 compatibility patches."
+          # 4. 核心修复：解决 ScanService 在 Android 10 找不到 getDirectory() 的崩溃
+          # 将 volume.getDirectory() 替换为反射调用，以兼容 API 29
+          # 查找 ScanService.kt 路径（通常在 background 目录下）
+          SCAN_SERVICE_PATH="app/src/main/java/de/felixnuesse/disky/background/ScanService.kt"
+          
+          # 使用反射获取 File 对象：volume.javaClass.getDeclaredMethod("getPathFile").invoke(volume) as File
+          # 或者更简单的：volume.javaClass.getDeclaredMethod("getPath").invoke(volume) as String
+          # 这里采用 getPath 并转换为 File 的方式，这是 API 29 访问 StorageVolume 路径的最稳妥手段
+          sed -i 's/it.getDirectory()/File(it.javaClass.getDeclaredMethod("getPath").invoke(it) as String)/g' $SCAN_SERVICE_PATH
+          sed -i 's/volume.getDirectory()/File(volume.javaClass.getDeclaredMethod("getPath").invoke(volume) as String)/g' $SCAN_SERVICE_PATH
+
+          echo "Patched ScanService.kt with reflection to support API 29 storage access."
 
       - name: Decode Keystore
         run: echo "${{ secrets.KS_FILE }}" | base64 -d > ${{ github.workspace }}/app/my.keystore
