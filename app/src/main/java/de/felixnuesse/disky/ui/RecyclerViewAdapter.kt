@@ -142,6 +142,7 @@ class RecyclerViewAdapter(private var mContext: Context, private val folders: Li
 
                                 Glide.with(mContext)
                                     .load(File(URI.create(leaf.uri)))
+                                    .thumbnail(0.4f)
                                     .transform(CenterCrop(), RoundedCorners(12))
                                     .diskCacheStrategy(DiskCacheStrategy.ALL)
                                     .listener(object : RequestListener<Drawable> {
