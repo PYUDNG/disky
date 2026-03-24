@@ -13,14 +13,14 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
 
-class FsScanner(var callback: ScannerCallback?): ScannerInterface {
+class FullyMulticoreFsScanner(var callback: ScannerCallback?): ScannerInterface {
 
-    var cores = Runtime.getRuntime().availableProcessors()
     var stopped = false
 
-    var lastScan = 0L
+    var cores = Runtime.getRuntime().availableProcessors()
 
     val executor = Executors.newWorkStealingPool(cores) as ExecutorService
+    var lastScan = 0L
 
     fun submit(task: StoragePrototype) {
         executor.submit {
@@ -30,9 +30,9 @@ class FsScanner(var callback: ScannerCallback?): ScannerInterface {
 
     override fun scan(file: File, subfolder: String): StoragePrototype {
         val start = System.currentTimeMillis()
-        val result = internalSemiMultithreadedScan(file, subfolder)
+        val result = internalFullyMultithreadedScan(file, subfolder)
         lastScan = System.currentTimeMillis()-start
-        Log.e(tag(), "Time: $lastScan ms (Semi Multi-Core;$cores)")
+        Log.e(tag(), "Time: $lastScan ms (Fully Multi-Core;$cores)")
         return result
     }
 
@@ -48,7 +48,7 @@ class FsScanner(var callback: ScannerCallback?): ScannerInterface {
         }
     }
 
-    private fun internalSemiMultithreadedScan(file: File, subfolder: String): StoragePrototype {
+    private fun internalFullyMultithreadedScan(file: File, subfolder: String): StoragePrototype {
         val rootFolder = getFullPath(file, subfolder)
         val root = StorageBranch(rootFolder)
 
